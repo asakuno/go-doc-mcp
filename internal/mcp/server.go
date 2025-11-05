@@ -14,17 +14,19 @@ import (
 )
 
 type Config struct {
-	PostgresHost     string
-	PostgresPort     string
-	PostgresUser     string
-	PostgresPassword string
-	PostgresDB       string
-	OpenAIAPIKey     string
-	DocumentPath     string
-	ChunkSize        int
-	ChunkOverlap     int
-	EmbeddingModel   string
-	EmbeddingDim     int
+	PostgresHost      string
+	PostgresPort      string
+	PostgresUser      string
+	PostgresPassword  string
+	PostgresDB        string
+	EmbeddingProvider string
+	OpenAIAPIKey      string
+	OllamaURL         string
+	DocumentPath      string
+	ChunkSize         int
+	ChunkOverlap      int
+	EmbeddingModel    string
+	EmbeddingDim      int
 }
 
 type DocumentMCPServer struct {
@@ -40,18 +42,30 @@ func LoadConfig() *Config {
 	chunkOverlap, _ := strconv.Atoi(getEnv("CHUNK_OVERLAP", "200"))
 	embeddingDim, _ := strconv.Atoi(getEnv("EMBEDDING_DIMENSIONS", "1536"))
 
+	// Default to Ollama for free embeddings
+	provider := getEnv("EMBEDDING_PROVIDER", "ollama")
+	model := getEnv("EMBEDDING_MODEL", "nomic-embed-text")
+	ollamaURL := getEnv("OLLAMA_URL", "http://localhost:11434")
+
+	// Override defaults for OpenAI
+	if provider == "openai" {
+		model = getEnv("EMBEDDING_MODEL", "text-embedding-3-small")
+	}
+
 	return &Config{
-		PostgresHost:     getEnv("POSTGRES_HOST", "localhost"),
-		PostgresPort:     getEnv("POSTGRES_PORT", "5432"),
-		PostgresUser:     getEnv("POSTGRES_USER", "postgres"),
-		PostgresPassword: getEnv("POSTGRES_PASSWORD", "postgres"),
-		PostgresDB:       getEnv("POSTGRES_DB", "vectordb"),
-		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
-		DocumentPath:     getEnv("DOCUMENT_PATH", "./docs"),
-		ChunkSize:        chunkSize,
-		ChunkOverlap:     chunkOverlap,
-		EmbeddingModel:   getEnv("EMBEDDING_MODEL", "text-embedding-3-small"),
-		EmbeddingDim:     embeddingDim,
+		PostgresHost:      getEnv("POSTGRES_HOST", "localhost"),
+		PostgresPort:      getEnv("POSTGRES_PORT", "5432"),
+		PostgresUser:      getEnv("POSTGRES_USER", "postgres"),
+		PostgresPassword:  getEnv("POSTGRES_PASSWORD", "postgres"),
+		PostgresDB:        getEnv("POSTGRES_DB", "vectordb"),
+		EmbeddingProvider: provider,
+		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
+		OllamaURL:         ollamaURL,
+		DocumentPath:      getEnv("DOCUMENT_PATH", "./docs"),
+		ChunkSize:         chunkSize,
+		ChunkOverlap:      chunkOverlap,
+		EmbeddingModel:    model,
+		EmbeddingDim:      embeddingDim,
 	}
 }
 
@@ -64,7 +78,13 @@ func getEnv(key, defaultValue string) string {
 
 func NewDocumentMCPServer(ctx context.Context, config *Config) (*DocumentMCPServer, error) {
 	// Initialize embedding service
-	embeddingService := vectorstore.NewEmbeddingService(config.OpenAIAPIKey, config.EmbeddingModel)
+	var provider vectorstore.EmbeddingProvider
+	if config.EmbeddingProvider == "openai" {
+		provider = vectorstore.ProviderOpenAI
+	} else {
+		provider = vectorstore.ProviderOllama
+	}
+	embeddingService := vectorstore.NewEmbeddingService(provider, config.OpenAIAPIKey, config.EmbeddingModel, config.OllamaURL)
 
 	// Initialize vector store
 	connString := fmt.Sprintf(

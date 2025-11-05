@@ -23,22 +23,40 @@ clean: ## Clean build artifacts
 	rm -f go-doc-mcp
 	go clean
 
-docker-up: ## Start PostgreSQL with pgvector
+docker-up: ## Start PostgreSQL and Ollama
 	docker-compose up -d
-	@echo "Waiting for PostgreSQL to be ready..."
+	@echo "Waiting for services to be ready..."
 	@sleep 5
 	@docker-compose exec -T postgres pg_isready -U postgres || (echo "PostgreSQL not ready yet, waiting..." && sleep 5)
 	@echo "PostgreSQL is ready!"
+	@echo "Ollama is ready!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "1. Pull Ollama embedding model: make ollama-pull"
+	@echo "2. Build and run: make build && ./go-doc-mcp"
 
-docker-down: ## Stop PostgreSQL
+docker-down: ## Stop all Docker services
 	docker-compose down
 
-docker-logs: ## Show PostgreSQL logs
-	docker-compose logs -f postgres
+docker-logs: ## Show Docker logs (all services)
+	docker-compose logs -f
 
-docker-reset: ## Reset PostgreSQL (delete all data)
+docker-reset: ## Reset all Docker data (delete all data)
 	docker-compose down -v
 	docker-compose up -d
+
+ollama-pull: ## Download Ollama embedding model (nomic-embed-text)
+	@echo "Downloading Ollama embedding model..."
+	docker exec -it go-doc-mcp-ollama ollama pull nomic-embed-text
+	@echo "Model downloaded successfully!"
+
+ollama-list: ## List available Ollama models
+	docker exec -it go-doc-mcp-ollama ollama list
+
+ollama-pull-large: ## Download larger embedding model (mxbai-embed-large)
+	@echo "Downloading larger embedding model..."
+	docker exec -it go-doc-mcp-ollama ollama pull mxbai-embed-large
+	@echo "Model downloaded! Update EMBEDDING_MODEL=mxbai-embed-large and EMBEDDING_DIMENSIONS=1024 in .env"
 
 install: build ## Build and install to $GOPATH/bin
 	cp go-doc-mcp $(GOPATH)/bin/
@@ -46,4 +64,6 @@ install: build ## Build and install to $GOPATH/bin
 dev: docker-up ## Start development environment
 	@echo "Development environment ready!"
 	@echo "PostgreSQL: localhost:5432"
-	@echo "Run 'make run' to start the server"
+	@echo "Ollama: localhost:11434"
+	@echo "Run 'make ollama-pull' to download the embedding model"
+	@echo "Then run 'make run' to start the server"

@@ -11,10 +11,12 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 -- Create embeddings table with vector support
+-- Default dimension is 768 for Ollama's nomic-embed-text
+-- Change to 1536 if using OpenAI's text-embedding-3-small
 CREATE TABLE IF NOT EXISTS embeddings (
     id SERIAL PRIMARY KEY,
     document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
-    embedding vector(1536),
+    embedding vector(768),
     chunk_index INTEGER,
     chunk_text TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
