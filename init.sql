@@ -6,8 +6,12 @@ CREATE TABLE IF NOT EXISTS documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
     metadata JSONB,
-    file_path TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    file_path TEXT UNIQUE NOT NULL,
+    file_hash TEXT,
+    file_size BIGINT,
+    file_modified_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create embeddings table with vector support
@@ -28,3 +32,9 @@ USING hnsw (embedding vector_cosine_ops);
 
 -- Create index for document lookup
 CREATE INDEX IF NOT EXISTS embeddings_document_id_idx ON embeddings(document_id);
+
+-- Create index for file_path lookup (for duplicate check)
+CREATE INDEX IF NOT EXISTS documents_file_path_idx ON documents(file_path);
+
+-- Create index for file_hash lookup (for change detection)
+CREATE INDEX IF NOT EXISTS documents_file_hash_idx ON documents(file_hash);

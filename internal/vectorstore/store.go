@@ -12,12 +12,19 @@ import (
 )
 
 type SearchResult struct {
-	ChunkText    string
-	FilePath     string
-	Score        float64
-	ChunkIndex   int
-	DocumentID   int
-	FullDocument string
+	ChunkText     string
+	FilePath      string
+	Score         float64
+	ChunkIndex    int
+	DocumentID    int
+	FullDocument  string
+	PreviousChunk string // Context: previous chunk
+	NextChunk     string // Context: next chunk
+}
+
+type SearchFilter struct {
+	FileExtensions []string // e.g., [".go", ".md"]
+	FilePaths      []string // e.g., ["src/", "docs/"]
 }
 
 type VectorStore struct {
@@ -65,8 +72,8 @@ func (v *VectorStore) AddDocument(ctx context.Context, doc *document.Document, c
 
 	var docID int
 	err = tx.QueryRow(ctx,
-		"INSERT INTO documents (content, metadata, file_path) VALUES ($1, $2, $3) RETURNING id",
-		doc.Content, metadataJSON, doc.FilePath,
+		"INSERT INTO documents (content, metadata, file_path, file_hash, file_size, file_modified_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		doc.Content, metadataJSON, doc.FilePath, doc.FileHash, doc.FileSize, doc.FileModifiedAt,
 	).Scan(&docID)
 	if err != nil {
 		return fmt.Errorf("failed to insert document: %w", err)

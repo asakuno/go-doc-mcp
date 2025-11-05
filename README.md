@@ -15,12 +15,20 @@ Golangで実装されたドキュメントベクトル検索のためのMCP（Mo
 
 MCPサーバーは以下のツールを提供します：
 
+### 基本ツール
 1. **search_documents**: ベクトル検索でドキュメントを検索
 2. **index_document**: 単一ファイルをインデックス化
 3. **index_directory**: ディレクトリ内の全ファイルをインデックス化
 4. **list_documents**: インデックス済みドキュメント一覧を表示
 5. **delete_document**: ドキュメントを削除
-6. **get_stats**: 統計情報を取得
+6. **get_stats**: 統計情報を取得（ファイルタイプ別統計含む）
+
+### 高度な機能 🆕
+7. **search_with_context**: コンテキスト付き検索（前後のチャンクも表示）
+8. **search_with_filter**: フィルタリング検索（ファイルタイプやパスで絞り込み）
+9. **reindex_document**: ドキュメントの再インデックス化
+10. **index_directory_incremental**: 増分インデックス化（変更ファイルのみ更新）
+11. **get_document_info**: ドキュメントの詳細情報を取得
 
 ## セットアップ
 
@@ -189,20 +197,55 @@ Claude Codeの設定ファイル（`claude_desktop_config.json`または`claude_
 
 ### 基本的な使用例
 
-1. **ディレクトリをインデックス化**:
+1. **ディレクトリをインデックス化（増分更新）**:
 ```
-Claude Codeで: "index_directory ツールを使って ./docs ディレクトリをインデックス化して"
+Claude Codeで: "index_directory_incremental ツールを使って ./docs ディレクトリをインデックス化して"
 ```
+*新規ファイルは追加、変更ファイルは更新、未変更ファイルはスキップされます*
 
 2. **ドキュメントを検索**:
 ```
 Claude Codeで: "search_documents ツールで 'authentication' を検索して"
 ```
 
-3. **統計情報を確認**:
+3. **コンテキスト付き検索（推奨）**:
+```
+Claude Codeで: "search_with_context ツールで 'database connection' を検索して、前後のコンテキストも表示して"
+```
+*検索結果の前後のチャンクも表示され、より理解しやすくなります*
+
+4. **フィルタリング検索**:
+```
+Claude Codeで: "search_with_filter ツールで 'error handling' を .go ファイルのみで検索して"
+```
+
+5. **ドキュメントの再インデックス化**:
+```
+Claude Codeで: "reindex_document ツールで ./docs/api.md を再インデックス化して"
+```
+
+6. **統計情報を確認**:
 ```
 Claude Codeで: "get_stats ツールでドキュメントの統計を表示して"
 ```
+
+### 高度な使用例
+
+**特定のファイルタイプのみ検索**:
+```
+search_with_filter で "memory management" を [".c", ".cpp", ".h"] で検索
+```
+
+**特定のディレクトリ内のみ検索**:
+```
+search_with_filter で "API documentation" を paths: ["docs/api/"] で検索
+```
+
+**ドキュメントの詳細情報を確認**:
+```
+get_document_info で ./src/main.go の情報を表示
+```
+*ファイルハッシュ、サイズ、チャンク数、更新日時などが表示されます*
 
 ## 設定
 
@@ -356,14 +399,24 @@ docker exec -it go-doc-mcp-ollama ollama pull nomic-embed-text
 データベースには既にHNSW（Hierarchical Navigable Small World）インデックスが作成されています。
 大量のドキュメントをインデックス化する場合は、以下を検討してください：
 
-1. バッチ処理で少しずつインデックス化
-2. 軽量な埋め込みモデルを使用
-3. PostgreSQLの`work_mem`を増やす
+1. **増分インデックスを使用** - `index_directory_incremental`を使用すると、変更されたファイルのみが再インデックス化されます
+2. バッチ処理で少しずつインデックス化
+3. 軽量な埋め込みモデルを使用
+4. PostgreSQLの`work_mem`を増やす
 
 ### 検索速度
 
+- **フィルタリング検索を活用** - `search_with_filter`で不要なファイルタイプを除外
 - limitパラメータを適切に設定（デフォルト: 5）
+- コンテキスト検索(`search_with_context`)は通常の検索より少し遅いですが、より有用な結果が得られます
 - 不要なドキュメントは定期的に削除
+
+### 重複防止
+
+システムはファイルハッシュを使用して自動的に重複を検出します：
+- 同じファイルを再インデックス化しようとすると自動的にスキップされます
+- ファイルが変更された場合のみ再インデックス化されます
+- `get_document_info`で現在のハッシュと更新日時を確認できます
 
 ## Makefile コマンド
 

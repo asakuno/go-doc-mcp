@@ -1,17 +1,23 @@
 package document
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Document struct {
-	Content  string
-	FilePath string
-	Metadata map[string]interface{}
+	Content        string
+	FilePath       string
+	FileHash       string
+	FileSize       int64
+	FileModifiedAt time.Time
+	Metadata       map[string]interface{}
 }
 
 type Loader struct {
@@ -31,6 +37,12 @@ func (l *Loader) LoadFile(path string) (*Document, error) {
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 
+	// Get file info
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -42,9 +54,16 @@ func (l *Loader) LoadFile(path string) (*Document, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// Calculate file hash
+	hash := sha256.Sum256(content)
+	fileHash := hex.EncodeToString(hash[:])
+
 	return &Document{
-		Content:  string(content),
-		FilePath: path,
+		Content:        string(content),
+		FilePath:       path,
+		FileHash:       fileHash,
+		FileSize:       fileInfo.Size(),
+		FileModifiedAt: fileInfo.ModTime(),
 		Metadata: map[string]interface{}{
 			"extension": ext,
 			"filename":  filepath.Base(path),

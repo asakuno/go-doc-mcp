@@ -167,14 +167,28 @@ func (s *DocumentMCPServer) handleGetStats(arguments map[string]interface{}) (*m
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get stats: %v", err)), nil
 	}
 
+	// Get stats by extension
+	statsByExt, err := s.vectorStore.GetStatsByExtension(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to get extension stats: %v", err)), nil
+	}
+
 	var resultText strings.Builder
 	resultText.WriteString("Document Vector Store Statistics\n")
 	resultText.WriteString("================================\n\n")
 	resultText.WriteString(fmt.Sprintf("Total Documents: %d\n", count))
-	resultText.WriteString(fmt.Sprintf("Chunk Size: %d characters\n", s.config.ChunkSize))
-	resultText.WriteString(fmt.Sprintf("Chunk Overlap: %d characters\n", s.config.ChunkOverlap))
+	resultText.WriteString(fmt.Sprintf("Embedding Provider: %s\n", s.config.EmbeddingProvider))
 	resultText.WriteString(fmt.Sprintf("Embedding Model: %s\n", s.config.EmbeddingModel))
 	resultText.WriteString(fmt.Sprintf("Embedding Dimensions: %d\n", s.config.EmbeddingDim))
+	resultText.WriteString(fmt.Sprintf("Chunk Size: %d characters\n", s.config.ChunkSize))
+	resultText.WriteString(fmt.Sprintf("Chunk Overlap: %d characters\n", s.config.ChunkOverlap))
+
+	if len(statsByExt) > 0 {
+		resultText.WriteString("\nDocuments by File Type:\n")
+		for ext, extCount := range statsByExt {
+			resultText.WriteString(fmt.Sprintf("  %s: %d\n", ext, extCount))
+		}
+	}
 
 	return mcp.NewToolResultText(resultText.String()), nil
 }

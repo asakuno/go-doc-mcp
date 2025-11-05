@@ -214,6 +214,117 @@ func (s *DocumentMCPServer) registerTools() {
 			Properties: map[string]interface{}{},
 		},
 	}, s.handleGetStats)
+
+	// Search with context tool (NEW)
+	s.mcpServer.AddTool(mcp.Tool{
+		Name:        "search_with_context",
+		Description: "Search through indexed documents with surrounding context. Returns relevant chunks with previous and next chunks for better understanding.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"query": map[string]interface{}{
+					"type":        "string",
+					"description": "The search query to find relevant documents",
+				},
+				"limit": map[string]interface{}{
+					"type":        "number",
+					"description": "Maximum number of results to return (default: 5)",
+					"default":     5,
+				},
+				"file_types": map[string]interface{}{
+					"type":        "array",
+					"description": "Filter by file extensions (e.g., [\".go\", \".md\"])",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+				},
+			},
+			Required: []string{"query"},
+		},
+	}, s.handleSearchWithContext)
+
+	// Search with filter tool (NEW)
+	s.mcpServer.AddTool(mcp.Tool{
+		Name:        "search_with_filter",
+		Description: "Search through indexed documents with metadata filtering. Filter by file types or paths.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"query": map[string]interface{}{
+					"type":        "string",
+					"description": "The search query to find relevant documents",
+				},
+				"limit": map[string]interface{}{
+					"type":        "number",
+					"description": "Maximum number of results to return (default: 5)",
+					"default":     5,
+				},
+				"file_types": map[string]interface{}{
+					"type":        "array",
+					"description": "Filter by file extensions (e.g., [\".go\", \".md\"])",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+				},
+				"paths": map[string]interface{}{
+					"type":        "array",
+					"description": "Filter by file paths (e.g., [\"src/\", \"docs/\"])",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+				},
+			},
+			Required: []string{"query"},
+		},
+	}, s.handleSearchWithFilter)
+
+	// Reindex document tool (NEW)
+	s.mcpServer.AddTool(mcp.Tool{
+		Name:        "reindex_document",
+		Description: "Re-index a document that has been modified. This deletes the old index and creates a new one.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"file_path": map[string]interface{}{
+					"type":        "string",
+					"description": "Path to the document file to reindex",
+				},
+			},
+			Required: []string{"file_path"},
+		},
+	}, s.handleReindexDocument)
+
+	// Index directory incremental tool (NEW)
+	s.mcpServer.AddTool(mcp.Tool{
+		Name:        "index_directory_incremental",
+		Description: "Index a directory with smart incremental updates. Only adds new files and updates modified files, skips unchanged files.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"directory_path": map[string]interface{}{
+					"type":        "string",
+					"description": "Path to the directory to index",
+				},
+			},
+			Required: []string{"directory_path"},
+		},
+	}, s.handleIndexDirectoryIncremental)
+
+	// Get document info tool (NEW)
+	s.mcpServer.AddTool(mcp.Tool{
+		Name:        "get_document_info",
+		Description: "Get detailed information about a specific indexed document including hash, size, chunks, and timestamps.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"file_path": map[string]interface{}{
+					"type":        "string",
+					"description": "Path to the document file",
+				},
+			},
+			Required: []string{"file_path"},
+		},
+	}, s.handleGetDocumentInfo)
 }
 
 func (s *DocumentMCPServer) Start() error {
