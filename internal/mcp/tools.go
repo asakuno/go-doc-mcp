@@ -1,104 +1,66 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func (s *DocumentMCPServer) handleSearchDocuments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	query, ok := arguments["query"].(string)
-	if !ok || query == "" {
-		return mcp.NewToolResultError("query parameter is required and must be a string"), nil
+	query, limit, err := getQueryAndLimit(arguments)
+	if err != nil {
+		return wrapToolError("%s", err)
 	}
 
-	limit := 5
-	if limitVal, ok := arguments["limit"].(float64); ok {
-		limit = int(limitVal)
-	}
-
-	ctx := context.Background()
+	ctx := newContext()
 	results, err := s.vectorStore.Search(ctx, query, limit)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to search documents: %v", err)), nil
+		return wrapToolError(ErrFailedToSearch, err)
 	}
 
 	if len(results) == 0 {
-		return mcp.NewToolResultText("No relevant documents found."), nil
+		return wrapToolSuccess(MsgNoDocumentsFound)
 	}
 
-	var resultText strings.Builder
-	resultText.WriteString(fmt.Sprintf("Found %d relevant document chunks:\n\n", len(results)))
-
-	for i, result := range results {
-		resultText.WriteString(fmt.Sprintf("--- Result %d (Score: %.4f) ---\n", i+1, result.Score))
-		resultText.WriteString(fmt.Sprintf("File: %s\n", result.FilePath))
-		resultText.WriteString(fmt.Sprintf("Chunk Index: %d\n", result.ChunkIndex))
-		resultText.WriteString(fmt.Sprintf("\nContent:\n%s\n\n", result.ChunkText))
-	}
-
-	return mcp.NewToolResultText(resultText.String()), nil
+	return wrapToolSuccess(formatSearchResults(results))
 }
 
 func (s *DocumentMCPServer) handleIndexDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	filePath, ok := arguments["file_path"].(string)
-	if !ok || filePath == "" {
-		return mcp.NewToolResultError("file_path parameter is required and must be a string"), nil
-	}
-
-	// Make path absolute
-	absPath, err := filepath.Abs(filePath)
+	absPath, err := getFilePath(arguments)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid file path: %v", err)), nil
+		return wrapToolError("%s", err)
 	}
 
-	// Load document
-	doc, err := s.loader.LoadFile(absPath)
+	doc, chunks, err := s.loadAndChunkDocument(absPath)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to load document: %v", err)), nil
+		return wrapToolError("%s", err)
 	}
 
-	// Chunk document
-	chunks := s.chunker.ChunkDocument(doc)
-
-	// Add to vector store
-	ctx := context.Background()
+	ctx := newContext()
 	if err := s.vectorStore.AddDocument(ctx, doc, chunks); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to index document: %v", err)), nil
+		return wrapToolError(ErrFailedToIndex, err)
 	}
 
-	return mcp.NewToolResultText(
-		fmt.Sprintf("Successfully indexed document: %s (%d chunks created)", absPath, len(chunks)),
-	), nil
+	return wrapToolSuccess(MsgDocumentIndexed, absPath, len(chunks))
 }
 
 func (s *DocumentMCPServer) handleIndexDirectory(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	dirPath, ok := arguments["directory_path"].(string)
-	if !ok || dirPath == "" {
-		return mcp.NewToolResultError("directory_path parameter is required and must be a string"), nil
-	}
-
-	// Make path absolute
-	absPath, err := filepath.Abs(dirPath)
+	absPath, err := getDirectoryPath(arguments)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid directory path: %v", err)), nil
+		return wrapToolError("%s", err)
 	}
 
-	// Load all documents
 	docs, err := s.loader.LoadDirectory(absPath)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to load documents: %v", err)), nil
+		return wrapToolError(ErrFailedToLoad, err)
 	}
 
 	if len(docs) == 0 {
-		return mcp.NewToolResultText("No supported documents found in the directory."), nil
+		return wrapToolSuccess(MsgNoDocumentsInDir)
 	}
 
-	// Process each document
-	ctx := context.Background()
+	ctx := newContext()
 	totalChunks := 0
 	successCount := 0
 	var errors []string
@@ -113,8 +75,58 @@ func (s *DocumentMCPServer) handleIndexDirectory(arguments map[string]interface{
 		successCount++
 	}
 
+	return wrapToolSuccess(formatDirectoryIndexResult(successCount, len(docs), totalChunks, errors))
+}
+
+func (s *DocumentMCPServer) handleListDocuments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	ctx := newContext()
+	filePaths, err := s.vectorStore.ListDocuments(ctx)
+	if err != nil {
+		return wrapToolError(ErrFailedToList, err)
+	}
+
+	if len(filePaths) == 0 {
+		return wrapToolSuccess(MsgNoDocumentsIndexed)
+	}
+
+	return wrapToolSuccess(formatDocumentList(filePaths))
+}
+
+func (s *DocumentMCPServer) handleDeleteDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	filePath, ok := arguments["file_path"].(string)
+	if !ok || filePath == "" {
+		return wrapToolError(ErrFilePathRequired)
+	}
+
+	ctx := newContext()
+	if err := s.vectorStore.DeleteDocument(ctx, filePath); err != nil {
+		return wrapToolError(ErrFailedToDelete, err)
+	}
+
+	return wrapToolSuccess(MsgDocumentDeleted, filePath)
+}
+
+func (s *DocumentMCPServer) handleGetStats(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	ctx := newContext()
+
+	count, err := s.vectorStore.GetDocumentCount(ctx)
+	if err != nil {
+		return wrapToolError(ErrFailedToGetStats, err)
+	}
+
+	statsByExt, err := s.vectorStore.GetStatsByExtension(ctx)
+	if err != nil {
+		return wrapToolError(ErrFailedToGetStats, err)
+	}
+
+	return wrapToolSuccess(formatStats(count, s.config, statsByExt))
+}
+
+// Helper formatting functions
+
+func formatDirectoryIndexResult(successCount, totalCount, totalChunks int, errors []string) string {
 	var resultText strings.Builder
-	resultText.WriteString(fmt.Sprintf("Indexed %d/%d documents (%d chunks total)\n", successCount, len(docs), totalChunks))
+	resultText.WriteString(fmt.Sprintf("Indexed %d/%d documents (%d chunks total)\n", successCount, totalCount, totalChunks))
 
 	if len(errors) > 0 {
 		resultText.WriteString("\nErrors:\n")
@@ -123,65 +135,28 @@ func (s *DocumentMCPServer) handleIndexDirectory(arguments map[string]interface{
 		}
 	}
 
-	return mcp.NewToolResultText(resultText.String()), nil
+	return resultText.String()
 }
 
-func (s *DocumentMCPServer) handleListDocuments(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
-	filePaths, err := s.vectorStore.ListDocuments(ctx)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to list documents: %v", err)), nil
-	}
-
-	if len(filePaths) == 0 {
-		return mcp.NewToolResultText("No documents indexed yet."), nil
-	}
-
+func formatDocumentList(filePaths []string) string {
 	var resultText strings.Builder
 	resultText.WriteString(fmt.Sprintf("Total indexed documents: %d\n\n", len(filePaths)))
 	for i, path := range filePaths {
 		resultText.WriteString(fmt.Sprintf("%d. %s\n", i+1, path))
 	}
-
-	return mcp.NewToolResultText(resultText.String()), nil
+	return resultText.String()
 }
 
-func (s *DocumentMCPServer) handleDeleteDocument(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	filePath, ok := arguments["file_path"].(string)
-	if !ok || filePath == "" {
-		return mcp.NewToolResultError("file_path parameter is required and must be a string"), nil
-	}
-
-	ctx := context.Background()
-	if err := s.vectorStore.DeleteDocument(ctx, filePath); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete document: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully deleted document: %s", filePath)), nil
-}
-
-func (s *DocumentMCPServer) handleGetStats(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
-	ctx := context.Background()
-	count, err := s.vectorStore.GetDocumentCount(ctx)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get stats: %v", err)), nil
-	}
-
-	// Get stats by extension
-	statsByExt, err := s.vectorStore.GetStatsByExtension(ctx)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get extension stats: %v", err)), nil
-	}
-
+func formatStats(count int, config *Config, statsByExt map[string]int) string {
 	var resultText strings.Builder
 	resultText.WriteString("Document Vector Store Statistics\n")
 	resultText.WriteString("================================\n\n")
 	resultText.WriteString(fmt.Sprintf("Total Documents: %d\n", count))
-	resultText.WriteString(fmt.Sprintf("Embedding Provider: %s\n", s.config.EmbeddingProvider))
-	resultText.WriteString(fmt.Sprintf("Embedding Model: %s\n", s.config.EmbeddingModel))
-	resultText.WriteString(fmt.Sprintf("Embedding Dimensions: %d\n", s.config.EmbeddingDim))
-	resultText.WriteString(fmt.Sprintf("Chunk Size: %d characters\n", s.config.ChunkSize))
-	resultText.WriteString(fmt.Sprintf("Chunk Overlap: %d characters\n", s.config.ChunkOverlap))
+	resultText.WriteString(fmt.Sprintf("Embedding Provider: %s\n", config.EmbeddingProvider))
+	resultText.WriteString(fmt.Sprintf("Embedding Model: %s\n", config.EmbeddingModel))
+	resultText.WriteString(fmt.Sprintf("Embedding Dimensions: %d\n", config.EmbeddingDim))
+	resultText.WriteString(fmt.Sprintf("Chunk Size: %d characters\n", config.ChunkSize))
+	resultText.WriteString(fmt.Sprintf("Chunk Overlap: %d characters\n", config.ChunkOverlap))
 
 	if len(statsByExt) > 0 {
 		resultText.WriteString("\nDocuments by File Type:\n")
@@ -190,5 +165,5 @@ func (s *DocumentMCPServer) handleGetStats(arguments map[string]interface{}) (*m
 		}
 	}
 
-	return mcp.NewToolResultText(resultText.String()), nil
+	return resultText.String()
 }
